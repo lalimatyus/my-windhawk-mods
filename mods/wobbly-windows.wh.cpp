@@ -2,7 +2,7 @@
 // @id              wobbly-windows
 // @name            Wobbly Windows
 // @description     The classic Compiz/KDE Plasma style Wobbly Windows effect for Windows 11!
-// @version         0.210
+// @version         0.211
 // @author          lalimatyus
 // @github          https://github.com/lalimatyus
 // @include         dwm.exe
@@ -8903,6 +8903,13 @@ struct WindowVisualCoordinates
     bool converted = false;
 };
 
+static bool IsDpiVirtualizedVisual(const WindowVisualCoordinates& coordinates)
+{
+    return coordinates.converted &&
+           (std::abs(coordinates.scaleX - 1.0) > 0.01 ||
+            std::abs(coordinates.scaleY - 1.0) > 0.01);
+}
+
 static WindowVisualCoordinates GetWindowVisualCoordinates(HWND hwnd,
                                                            const RECT& fallbackRect,
                                                            const POINT& physicalCursor)
@@ -9131,6 +9138,19 @@ static void HandleMoveSizeStart(HWND hwnd)
                               ClassifyMoveSizeOperation(hwnd, mousePosition, operationResizing);
     if (operationTypeKnown && operationResizing && !activeSettings.resizeWobbleEnabled)
     {
+        return;
+    }
+    if (operationTypeKnown && operationResizing &&
+        IsDpiVirtualizedVisual(visualCoordinates))
+    {
+        int existingSlot = FindAnimationSlotForWindow(hwnd);
+        if (existingSlot >= 0)
+        {
+            RetireAnimationSlot(existingSlot);
+        }
+        Wh_Log(L"RESIZE WOBBLE SUPPRESSED: HWND=%p uses a DPI-virtualized visual "
+               L"Scale=(%.4f,%.4f)",
+               hwnd, visualCoordinates.scaleX, visualCoordinates.scaleY);
         return;
     }
     g_visualCoordinateScale = visualCoordinates.scaleX;
@@ -9985,6 +10005,15 @@ static void HandleLocationChange(HWND hwnd, LONG idObject, LONG idChild)
     if (g_realResizing && !g_dragResizeWobbleEnabled)
     {
         RetireAnimationSlot(slotIndex);
+        return;
+    }
+    if (g_realResizing && IsDpiVirtualizedVisual(visualCoordinates))
+    {
+        Wh_Log(L"RESIZE WOBBLE STOPPED: HWND=%p switched to a DPI-virtualized "
+               L"resize Scale=(%.4f,%.4f)",
+               hwnd, visualCoordinates.scaleX, visualCoordinates.scaleY);
+        RetireAnimationSlot(slotIndex);
+        ResetDragInputState();
         return;
     }
     if (!rectChanged && !mouseMoved && !nativeTargetPending &&
